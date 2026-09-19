@@ -1,3 +1,4 @@
+import TeacherNotifications from "../components/TeacherNotifications";
 import {
   useCallback,
   useEffect,
@@ -457,6 +458,7 @@ function EssayReview({ essayId }) {
 
 export default function TeacherDashboard() {
   const {
+     profile,
     essays,
     essaysLoading,
     essaysError,
@@ -484,6 +486,10 @@ export default function TeacherDashboard() {
           {essaysLoading ? "Refreshing…" : "Refresh submissions"}
         </button>
       </div>
+            <TeacherNotifications
+        teacherId={profile?.id}
+        onOpenSubmission={setSelectedId}
+      />
 
       <p className="muted">
         Only essays assigned to your account appear here.

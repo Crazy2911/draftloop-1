@@ -1,8 +1,22 @@
 import asyncio
 import logging
 from uuid import UUID
+from .embeddings import (
+    EmbeddingError,
+    compare_draft_texts,
+)
 
-from fastapi import APIRouter, HTTPException
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    UploadFile,
+)
+from .reflection import (
+    ReflectionError,
+    analyze_reflection,
+)
 from starlette.concurrency import run_in_threadpool
 
 from .auth import CurrentUser, StudentUser, TeacherUser
@@ -16,6 +30,10 @@ from .schemas import (
     RubricCreate,
     TeacherReviewCreate,
     validate_scores_against_rubric,
+)
+from .document_parser import (
+    DocumentExtractionError,
+    extract_document_text,
 )
 
 
@@ -846,3 +864,260 @@ def create_teacher_review(
     )
 
     return review_record(response.data[0])
+@router.post("/documents/extract")
+def extract_uploaded_document(
+    user: StudentUser,
+    upload: UploadFile = File(...),
+):
+    del user
+
+    try:
+        document_bytes = upload.file.read()
+
+        content = extract_document_text(
+            filename=upload.filename,
+            content_type=upload.content_type,
+            data=document_bytes,
+        )
+
+    except DocumentExtractionError as error:
+        raise HTTPException(
+            status_code=422,
+            detail=str(error),
+        ) from error
+
+    except Exception as error:
+        logger.exception(
+            "Document extraction failed for %s",
+            upload.filename,
+        )
+
+        raise HTTPException(
+            status_code=422,
+            detail="The uploaded document could not be processed.",
+        ) from error
+
+    return {
+        "filename": upload.filename,
+        "content": content,
+        "characters": len(content),
+    }
+@router.post("/drafts/{draft_id}/reflection")
+async def analyze_student_reflection(
+    draft_id: str,
+    user: StudentUser,
+):
+    def load_reflection_context():
+        draft_response = (
+            user.database
+            .table("drafts")
+            .select("id,essay_id,reflection,status")
+            .eq("id", draft_id)
+            .maybe_single()
+            .execute()
+        )
+
+        draft = draft_response.data
+
+        if not draft:
+            raise HTTPException(
+                status_code=404,
+                detail="Draft not found.",
+            )
+
+        essay_response = (
+            user.database
+            .table("essays")
+            .select("id,student_id")
+            .eq("id", draft["essay_id"])
+            .eq("student_id", user.id)
+            .maybe_single()
+            .execute()
+        )
+
+        if not essay_response.data:
+            raise HTTPException(
+                status_code=404,
+                detail="Draft not found.",
+            )
+
+        assessment_response = (
+            user.database
+            .table("assessments")
+            .select("result_json,total_score,max_score")
+            .eq("draft_id", draft_id)
+            .maybe_single()
+            .execute()
+        )
+
+        assessment = assessment_response.data
+
+        if not assessment:
+            raise HTTPException(
+                status_code=409,
+                detail="Grade the draft before analyzing reflection.",
+            )
+
+        reflection_text = (draft.get("reflection") or "").strip()
+
+        if not reflection_text:
+            raise HTTPException(
+                status_code=422,
+                detail="Add a reflection before analyzing it.",
+            )
+
+        return reflection_text, {
+            "result": assessment.get("result_json") or {},
+            "total_score": assessment.get("total_score"),
+            "max_score": assessment.get("max_score"),
+        }
+
+    reflection_text, feedback = await run_in_threadpool(
+        load_reflection_context,
+    )
+
+    try:
+        analysis = await analyze_reflection(
+            reflection_text,
+            feedback,
+        )
+
+    except ReflectionError as error:
+        raise HTTPException(
+            status_code=error.status_code,
+            detail={
+                "message": error.message,
+                "retryable": error.retryable,
+                "code": "reflection_analysis_failed",
+            },
+        ) from error
+
+    def save_analysis():
+        return (
+            privileged_database()
+            .table("student_reflections")
+            .upsert(
+                {
+                    "draft_id": draft_id,
+                    "student_id": essay["student_id"],
+                    "reflection_text": reflection_text,
+                    "analysis_json": analysis,
+                },
+                on_conflict="draft_id",
+            )
+            .execute()
+        )
+
+    await run_in_threadpool(save_analysis)
+
+    return {
+        "draft_id": draft_id,
+        "reflection_text": reflection_text,
+        "analysis": analysis,
+    }
+@router.post("/drafts/{draft_id}/semantic-drift")
+async def analyze_semantic_drift(
+    draft_id: str,
+    user: StudentUser,
+):
+    current_result = (
+        user.database
+        .table("drafts")
+        .select("id, essay_id, content, created_at")
+        .eq("id", draft_id)
+        .maybe_single()
+        .execute()
+    )
+
+    current_draft = current_result.data
+
+    if not current_draft:
+        raise HTTPException(
+            status_code=404,
+            detail="Draft not found.",
+        )
+
+    essay_result = (
+        user.database
+        .table("essays")
+        .select("id, student_id")
+        .eq("id", current_draft["essay_id"])
+        .maybe_single()
+        .execute()
+    )
+
+    essay = essay_result.data
+
+    if not essay or essay["student_id"] != user.id:
+        raise HTTPException(
+            status_code=403,
+            detail="You cannot analyze this draft.",
+        )
+
+    previous_result = (
+        user.database
+        .table("drafts")
+        .select("id, content, created_at")
+        .eq("essay_id", current_draft["essay_id"])
+        .lt("created_at", current_draft["created_at"])
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+
+    previous_drafts = previous_result.data or []
+
+    if not previous_drafts:
+        return {
+            "draft_id": draft_id,
+            "previous_draft_id": None,
+            "similarity": None,
+            "drift_label": "first_draft",
+            "message": "This is the first draft, so no revision comparison is available yet.",
+        }
+
+    previous_draft = previous_drafts[0]
+
+    try:
+        analysis = await compare_draft_texts(
+            previous_text=previous_draft["content"],
+            current_text=current_draft["content"],
+        )
+    except EmbeddingError as error:
+        raise HTTPException(
+            status_code=502,
+            detail=str(error),
+        ) from error
+
+    with privileged_database() as admin_db:
+        saved_result = (
+            admin_db
+            .table("draft_semantic_analysis")
+            .upsert(
+                {
+                    "draft_id": draft_id,
+                    "essay_id": current_draft["essay_id"],
+                    "student_id": essay["student_id"],
+                    "previous_draft_id": previous_draft["id"],
+                    "embedding": analysis["embedding"],
+                    "similarity": analysis["similarity"],
+                    "drift_label": analysis["drift_label"],
+                    "analysis_json": {
+                        "similarity": analysis["similarity"],
+                        "drift_label": analysis["drift_label"],
+                    },
+                },
+                on_conflict="draft_id",
+            )
+            .execute()
+        )
+
+    return {
+        "draft_id": draft_id,
+        "previous_draft_id": previous_draft["id"],
+        "similarity": analysis["similarity"],
+        "drift_label": analysis["drift_label"],
+        "analysis": saved_result.data[0]
+        if saved_result.data
+        else None,
+    }

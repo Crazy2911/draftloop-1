@@ -1,9 +1,11 @@
+import SemanticDrift from "../components/SemanticDrift";
 import {
   useCallback,
   useEffect,
   useRef,
   useState,
 } from "react";
+import ReflectionAnalysis from "../components/ReflectionAnalysis";
 
 import { Link, useParams } from "react-router-dom";
 import { RefreshCw, Sparkles } from "lucide-react";
@@ -383,6 +385,12 @@ function FeedbackWorkspace({ essayId, draftId }) {
           rubric={essay.rubric}
           assessment={assessment}
         />
+        {draft?.id && (
+  <ReflectionAnalysis draftId={draft.id} />
+)}
+{draft?.id && (
+  <SemanticDrift draftId={draft.id} />
+)}
       </div>
     </div>
   );

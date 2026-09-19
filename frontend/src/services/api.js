@@ -163,9 +163,17 @@ async function request(
   }, timeoutMs);
 
   try {
+
+    const isFormData =
+    typeof FormData !== "undefined" && body instanceof FormData;
+
     const headers = {
-      Accept: "application/json",
+    Accept: "application/json",
     };
+
+    if (!isFormData && body !== undefined) {
+    headers["Content-Type"] = "application/json";
+    }
 
     if (authenticated) {
       const { data, error } = await waitWithSignal(
@@ -196,21 +204,24 @@ async function request(
       headers.Authorization = `Bearer ${token}`;
     }
 
-    if (body !== undefined) {
-      headers["Content-Type"] = "application/json";
-    }
+    if (!isFormData && body !== undefined) {
+        headers["Content-Type"] = "application/json";
+      }
 
-    const response = await fetch(`${BASE_URL}${path}`, {
-      method,
-      headers,
-      body:
-        body !== undefined
-          ? JSON.stringify(body)
-          : undefined,
-      signal: controller.signal,
-      cache: "no-store",
-      credentials: "omit",
-    });
+      const response = await fetch(
+        `${BASE_URL}${path}`,
+    {
+        method,
+        headers,
+        body:
+  body === undefined
+    ? undefined
+    : isFormData
+      ? body
+      : JSON.stringify(body),
+        signal: controller.signal,
+    },
+    );
 
     const text = await response.text();
     let payload = null;
@@ -332,6 +343,16 @@ export const api = {
   listEssays({ signal } = {}) {
     return request("/api/essays", { signal });
   },
+    extractDocument: (file, options = {}) => {
+    const formData = new FormData();
+    formData.append("upload", file);
+
+    return request("/api/documents/extract", {
+        method: "POST",
+        body: formData,
+        ...options,
+    });
+    },
 
   createEssay(payload, { signal } = {}) {
     return request("/api/essays", {
@@ -353,6 +374,26 @@ export const api = {
       body: payload,
       signal,
     });
+  },
+  analyzeReflection(draftId, { signal } = {}) {
+  return request(
+    `/api/drafts/${idPath(draftId)}/reflection`,
+    {
+      method: "POST",
+      signal,
+      timeoutMs: GRADING_TIMEOUT,
+    },
+  );
+},
+  analyzeSemanticDrift(draftId, { signal } = {}) {
+    return request(
+      `/api/drafts/${idPath(draftId)}/semantic-drift`,
+      {
+        method: "POST",
+        signal,
+        timeoutMs: GRADING_TIMEOUT,
+      },
+    );
   },
 
   getDraft(draftId, { signal } = {}) {

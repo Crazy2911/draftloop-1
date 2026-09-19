@@ -21,7 +21,10 @@ DraftLoop is a web app where students submit essays against a rubric, receive AI
 13. [Validation and Reliability](#13-validation-and-reliability)
 14. [Security](#14-security)
 15. [Requirements Coverage](#15-requirements-coverage)
-16. [Future Improvements](#16-future-improvements)
+16. [Advanced Learning Features](#16-advanced-learning-features)
+17. [Additional Database Migration](#17-additional-database-migration)
+18. [Verification](#18-verification)
+19. [Future Improvements](#19-future-improvements)
 
 ---
 
@@ -195,9 +198,10 @@ Security rules include:
 | --- | --- |
 | Frontend | React (Vite), React Router, Supabase Auth client, Recharts, responsive CSS |
 | Backend | Python, FastAPI, Pydantic, HTTPX, Supabase Python client |
-| AI model | Gemini API (default `gemini-2.5-flash`), configured with `AI_PROVIDER` and `GEMINI_MODEL` |
+| AI model | Gemini API (default `gemini-2.5-flash`), configured with `AI_PROVIDER` and `GEMINI_MODEL`; Gemini embeddings for semantic revision drift |
 | Text diffing | Python `difflib` (standard library, no external service) |
-| Database | Supabase Authentication, Supabase PostgreSQL, Row Level Security, PostgreSQL functions and triggers |
+| Database | Supabase Authentication, Supabase PostgreSQL, Row Level Security, PostgreSQL functions and triggers, `vector` extension |
+| Realtime | Supabase Realtime for teacher review notifications |
 | Hosting | Vercel (frontend), Render (FastAPI backend), Supabase (auth and database) |
 
 ---
@@ -232,7 +236,8 @@ draftloop/
 ├── supabase/
 │   ├── schema.sql
 │   ├── grading.sql
-│   └── admin_setup.sql
+│   ├── admin_setup.sql
+│   └── features.sql
 ├── render.yaml
 └── README.md
 ```
@@ -251,7 +256,10 @@ draftloop/
 supabase/schema.sql
 supabase/grading.sql
 supabase/admin_setup.sql
+supabase/features.sql
 ```
+
+`features.sql` enables the advanced learning features (see [section 17](#17-additional-database-migration)).
 
 4. Enable email authentication.
 5. Create one student account and one teacher account.
@@ -485,9 +493,97 @@ Only publishable Supabase keys may be used in the frontend.
 | Authorization | Role checks, ownership checks, and Row Level Security |
 | Deployment | Vercel frontend and Render backend |
 
+### Advanced learning features (beyond the brief)
+
+| Feature | DraftLoop implementation |
+| --- | --- |
+| Semantic revision drift | Gemini embeddings compare the meaning of consecutive drafts |
+| Teacher review queue | Realtime notifications when an assigned student's draft is graded |
+| Student reflection analysis | Gemini analysis of what the student changed after feedback |
+
 ---
 
-## 16. Future Improvements
+## 16. Advanced Learning Features
+
+These features go beyond the core requirements and focus on whether students are actually learning from feedback.
+
+### 16.1 Semantic revision drift
+
+DraftLoop compares the meaning of consecutive drafts using Gemini embeddings.
+
+It reports one of:
+
+- Stable revision
+- Moderate change
+- Major change
+- First draft state
+
+The current embedding and comparison metadata are stored in Supabase using the `vector` extension.
+
+### 16.2 Teacher review queue
+
+When a graded draft is created, the assigned teacher receives a notification through Supabase Realtime.
+
+Teachers can:
+
+- View newly graded submissions
+- Open a submission directly
+- Mark notifications as reviewed
+- Provide verified score overrides
+
+### 16.3 Student reflection analysis
+
+Students can write what they changed after receiving feedback. Gemini analyzes the reflection and reports:
+
+- Feedback understood
+- Feedback applied
+- Remaining gaps
+- Learning summary
+- Recommended next action
+
+This helps measure whether students are learning from feedback rather than only receiving a score.
+
+---
+
+## 17. Additional Database Migration
+
+After running the core database migrations, run:
+
+```text
+supabase/features.sql
+```
+
+This creates the tables and policies for:
+
+- `student_reflections`
+- `teacher_notifications`
+- `draft_semantic_analysis`
+
+---
+
+## 18. Verification
+
+Run the full verification before deploying or submitting.
+
+Backend tests:
+
+```bash
+cd backend
+source .venv/bin/activate
+pytest -q
+```
+
+Frontend tests and production build:
+
+```bash
+cd frontend
+npm test
+npm run build
+```
+
+---
+
+## 19. Future Improvements
 
 - Essay file upload with PDF and DOCX text extraction
 - Teacher-created classes
