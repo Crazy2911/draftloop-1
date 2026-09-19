@@ -56,7 +56,17 @@ api_app = FastAPI(
     version="0.2.0",
     lifespan=lifespan,
 )
-
+api_app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://draftloop-theta.vercel.app",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @api_app.exception_handler(APIError)
 async def supabase_database_error(
@@ -230,14 +240,3 @@ def root():
 api_app.include_router(router)
 
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "https://draftloop-theta.vercel.app",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
