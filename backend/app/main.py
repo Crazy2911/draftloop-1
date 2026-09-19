@@ -1,6 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
-
+from fastapi.middleware.cors import CORSMiddleware
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -230,16 +230,14 @@ def root():
 api_app.include_router(router)
 
 
-# Wrap the complete application so error responses also receive
-# CORS headers for approved frontend origins.
-app = CORSMiddleware(
-    app=api_app,
-    allow_origins=list(settings.cors_origins),
-    allow_credentials=False,
-    allow_methods=["GET", "POST", "PUT", "OPTIONS"],
-    allow_headers=[
-        "Authorization",
-        "Content-Type",
-        "Accept",
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://draftloop-theta.vercel.app",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
     ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
