@@ -1,0 +1,51 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Python virtual environments
+.venv/
+venv/
+
+# Python cache and test output
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local database files and SQLite journals
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+
+# Uploaded student files
+backend/uploads/
+
+# Frontend dependencies and generated output
+node_modules/
+dist/
+.vite/
+coverage/
+
+# Logs
+*.log
+
+# Operating system files
+.DS_Store
+Thumbs.db
+backend/.env
+frontend/.env
+.env
+*.pyc
+__pycache__/
+backend/.venv/
+frontend/node_modules/
+frontend/dist/
+
+
